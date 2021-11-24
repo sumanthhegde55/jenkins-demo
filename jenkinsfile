@@ -1,0 +1,53 @@
+pipeline {
+  environment {
+    registry = "sumanthhegde/test"
+    registryCredential = 'dockerhub'
+    dockerImage = ''
+  }
+  agent any
+  stages {
+    stage('Cloning Git') {
+      steps {
+        git 'https://github.com/gustavoapolinario/microservices-node-example-todo-frontend.git'
+      }
+    }
+    stage('Building image') {
+      steps{
+        script {
+          dockerImage = docker.build registry + ":${BUILD_NUMBER}"
+        }
+      }
+    }
+    stage('Deploy Image') {
+      steps{
+        script {
+          docker.withRegistry( '', registryCredential ) {
+            dockerImage.push()
+          }
+        }
+      }
+    }
+    stage('Update repository'){
+        steps{
+            script{
+                def text=readYaml file:"helm/values.yaml"
+                text.deployments[0].image= registry + ":${BUILD_NUMBER}"
+                text.deployments[0].nameOverride="mongo-deployment"
+                sh("rm helm/values.yaml")
+                writeYaml file:"helm/values.yaml", data: text
+                withCredentials([usernamePassword(credentialsId: 'git',usernameVariable:'username',passwordVariable:'password')]){
+                    sh """
+                    git init
+                    git reset
+                    cd helm
+                    git add .
+                    git status
+                    git commit -m "jenkins commit with tag update and writeback to main"
+                    git push http://$username:$password@github.com/sumanthhegde55/helm-demo.git
+                    """
+                }
+            }
+        }
+    }
+  }
+}
